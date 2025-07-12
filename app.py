@@ -3,6 +3,7 @@ from flask_cors import CORS
 import re
 import numpy as np
 from datetime import datetime
+import os
 
 app = Flask(__name__)
 CORS(app)
@@ -28,14 +29,13 @@ def parse_sms(sms_text):
         "amount": None,
         "balance": None,
         "account_or_card": None,
-        "entities": [],  # NER skipped
+        "entities": [],
         "utility": None,
         "due_date": None,
         "is_active_reminder": False,
         "parsed_at": datetime.now().isoformat()
     }
 
-    # Basic keyword check
     if ("bill" in lower and ("due on" in lower or "by" in lower or "before" in lower)) or \
        ("outstanding" in lower and any(u in lower for u in ["electri", "water", "bill"])) or \
        "total due" in lower or any(t in lower for t in ["reading", "units", "ssc levy", "monthly bill"]):
@@ -45,25 +45,18 @@ def parse_sms(sms_text):
     if any(k in lower for k in bank_kw) and not result["is_reminder"]:
         result["is_bank_sms"] = True
 
-    # Skip NER to avoid pipeline hang
-    result["entities"] = []
-
-    # Amount extraction
     amt = re.search(r"(?:lkr|rs\.?)\s*([\d,]+\.\d{1,2})", sms_text, re.IGNORECASE)
     if amt:
         result["amount"] = float(amt.group(1).replace(",", ""))
 
-    # Due amount
     due_amt = re.search(r"(?:outstanding|total due)\s*[:\-]?\s*(?:lkr|rs\.?)?\s*([\d,]+\.\d{1,2})", sms_text, re.IGNORECASE)
     if due_amt:
         result["amount"] = float(due_amt.group(1).replace(",", ""))
 
-    # Balance
     bal = re.search(r"(?:balance(?: available| is)?|avl bal)[\s:\-]*(?:lkr|rs\.?)\s*([\d,]+\.\d{1,2})", sms_text, re.IGNORECASE)
     if bal:
         result["balance"] = float(bal.group(1).replace(",", ""))
 
-    # Card or Account
     acc = re.search(r"a/c\s?no\.?\s?\*+(\d+)", sms_text, re.IGNORECASE)
     if acc:
         result["account_or_card"] = f"A/C No ****{acc.group(1)}"
@@ -78,7 +71,6 @@ def parse_sms(sms_text):
         elif "debited" in lower or "spent" in lower or "transaction" in lower:
             result["type"] = "expense"
 
-    # Reminders
     if result["is_reminder"]:
         if "electric" in lower or any(k in lower for k in ["reading", "units", "ssc levy", "monthly bill"]):
             result["utility"] = "Electricity"
@@ -104,7 +96,6 @@ def parse_sms(sms_text):
 
     return result
 
-# Check if a date is in the current month
 def is_same_month(date_str):
     try:
         dt = datetime.fromisoformat(date_str)
@@ -173,6 +164,7 @@ def parse_bulk():
         "reminders": reminders
     })
 
-# Run on all interfaces
+# ✅ IMPORTANT: Cloud-friendly port binding
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port, debug=False)
